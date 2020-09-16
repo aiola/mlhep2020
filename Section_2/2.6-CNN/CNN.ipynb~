@@ -1,0 +1,643 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "wBE9GIubrYDC"
+   },
+   "source": [
+    "# Deep learning for computer vision\n",
+    "\n",
+    "\n",
+    "This notebook will teach you to build and train convolutional networks for image recognition. Brace yourselves."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 238
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "Rs909MGPrYDK",
+    "outputId": "2cbaab62-69fb-4e45-b4fb-e129237e78c4"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "# if you're running in colab,\n",
+    "# 1. go to Runtime -> Change Runtimy Type -> GPU\n",
+    "# 2. Run this\n",
+    "!wget https://raw.githubusercontent.com/yandexdataschool/Practical_DL/spring2019/week03_convnets/tiny_img.py -O tiny_img.py"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "ltPwgnpVrYDg"
+   },
+   "source": [
+    "# Tiny ImageNet dataset\n",
+    "This week, we shall focus on the image recognition problem on Tiny Image Net dataset\n",
+    "* 100k images of shape 3x64x64\n",
+    "* 200 different classes: snakes, spiders, cats, trucks, grasshoppers, gulls, etc.\n"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 35
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "umUCOiHFrYDk",
+    "outputId": "4703515a-c483-4375-a7ea-1c2bf9260426"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "import os\n",
+    "import torch, torchvision\n",
+    "from torchvision import transforms\n",
+    "from torch.utils.data import DataLoader\n",
+    "from tiny_img import download_tinyImg200\n",
+    "if not os.path.exists('./tiny-imagenet-200/'):\n",
+    "    download_tinyImg200('.')\n",
+    "    \n",
+    "device = 'cuda' if torch.cuda.is_available() else 'cpu'"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "tvz-gycUrYD1"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "dataset = torchvision.datasets.ImageFolder('tiny-imagenet-200/train', transform=transforms.ToTensor())\n",
+    "test_dataset = torchvision.datasets.ImageFolder('tiny-imagenet-200/val', transform=transforms.ToTensor())\n",
+    "train_dataset, val_dataset = torch.utils.data.random_split(dataset, [80000, 20000])\n",
+    "test_dataset, val_dataset = torch.utils.data.random_split(val_dataset, [10000, 10000])"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 1000
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "h7nHj64grYD9",
+    "outputId": "5bab45b9-fcea-4360-a9bd-fee9be91bee9"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "import matplotlib.pyplot as plt\n",
+    "%matplotlib inline\n",
+    "for i in range(10):\n",
+    "    xi, yi = train_dataset[i]\n",
+    "    plt.imshow(xi.data.numpy().transpose(1, 2, 0))\n",
+    "    plt.title('class = %i' % yi)\n",
+    "    plt.show()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "MM8T9MISrYEM"
+   },
+   "source": [
+    "# Building a network\n",
+    "\n",
+    "Simple neural networks with layers applied on top of one another can be implemented as `torch.nn.Sequential` - just add a list of pre-built modules and let it train."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "dOz-ioB7rYEQ"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "import torch, torch.nn as nn\n",
+    "import torch.nn.functional as F\n",
+    "\n",
+    "# a special module that converts [batch, channel, w, h] to [batch, units]\n",
+    "class Flatten(nn.Module):\n",
+    "    def forward(self, input):\n",
+    "        return input.view(input.shape[0], -1)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "jZxtxzt0rYEY"
+   },
+   "source": [
+    "Let's start with a dense network for our baseline:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "f43dEPxzrYEb"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "model = nn.Sequential()\n",
+    "\n",
+    "# reshape from \"images\" to flat vectors\n",
+    "model.add_module('flatten', Flatten())\n",
+    "\n",
+    "# dense \"head\"\n",
+    "model.add_module('dense1', nn.Linear(3 * 64 * 64, 1064))\n",
+    "model.add_module('dense2', nn.Linear(1064, 512))\n",
+    "model.add_module('dropout0', nn.Dropout(0.05)) \n",
+    "model.add_module('dense3', nn.Linear(512, 256))\n",
+    "model.add_module('dropout1', nn.Dropout(0.05))\n",
+    "model.add_module('dense4', nn.Linear(256, 64))\n",
+    "model.add_module('dropout2', nn.Dropout(0.05))\n",
+    "model.add_module('dense1_relu', nn.ReLU())\n",
+    "model.add_module('dense2_logits', nn.Linear(64, 200)) # logits for 200 classes\n",
+    "\n",
+    "model = model.to(device=device)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "Xk4XvZcBrYEk"
+   },
+   "source": [
+    "As in our basic tutorial, we train our model with negative log-likelihood aka crossentropy."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "Idf0vTKBrYEq"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "def compute_loss(X_batch, y_batch):\n",
+    "    X_batch = torch.as_tensor(X_batch, dtype=torch.float32, device=device)\n",
+    "    y_batch = torch.as_tensor(y_batch, dtype=torch.int64, device=device)\n",
+    "    logits = model(X_batch)\n",
+    "    return F.cross_entropy(logits, y_batch).mean()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "qCtLM639rYEw"
+   },
+   "source": [
+    "### Training on minibatches\n",
+    "* We got 100k images, that's way too many for a full-batch SGD. Let's train on minibatches instead\n",
+    "* Below is a function that splits the training sample into minibatches"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "I0RGtIAirYE0"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "opt = torch.optim.SGD(model.parameters(), lr=0.01)\n",
+    "\n",
+    "train_loss = []\n",
+    "val_accuracy = []"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+     "base_uri": "https://localhost:8080/",
+     "height": 127
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "QTxZDwcZrYE8",
+    "outputId": "c3997a80-e4f6-487d-948a-e4b3038c4094"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "import numpy as np\n",
+    "import time\n",
+    "\n",
+    "num_epochs = 100    # total number of full passes over data until training finishes\n",
+    "batch_size = 64     # number of images in one minibatch\n",
+    "\n",
+    "for epoch in range(100):\n",
+    "    start_time = time.time()\n",
+    "    model.train(True) # enable dropout / batch_norm training behavior\n",
+    "    for (X_batch, y_batch) in DataLoader(train_dataset, batch_size=batch_size, shuffle=True):\n",
+    "        # train on batch\n",
+    "        loss = compute_loss(X_batch, y_batch)\n",
+    "        loss.backward()\n",
+    "        opt.step()\n",
+    "        opt.zero_grad()\n",
+    "        train_loss.append(loss.cpu().data.numpy())\n",
+    "    \n",
+    "    model.train(False) # disable dropout / use averages for batch_norm\n",
+    "    for X_batch, y_batch in torch.utils.data.DataLoader(val_dataset, batch_size=batch_size):\n",
+    "        logits = model(torch.as_tensor(X_batch, device=device, dtype=torch.float32))\n",
+    "        y_pred = logits.max(1)[1].data\n",
+    "        val_accuracy.append(np.mean((y_batch.cpu() == y_pred.cpu()).numpy()))\n",
+    "\n",
+    "    \n",
+    "    # Then we print the results for this epoch:\n",
+    "    print(\"Epoch {} of {} took {:.3f}s\".format(\n",
+    "        epoch + 1, num_epochs, time.time() - start_time))\n",
+    "    print(\"  training loss (in-iteration): \\t{:.6f}\".format(\n",
+    "        np.mean(train_loss[-len(train_dataset) // batch_size :])))\n",
+    "    print(\"  validation accuracy: \\t\\t\\t{:.2f} %\".format(\n",
+    "        np.mean(val_accuracy[-len(val_dataset) // batch_size :]) * 100))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "OJy3BBGKrYFE"
+   },
+   "source": [
+    "Don't wait for full 100 epochs. You can interrupt training after 5-20 epochs once validation accuracy stops going up.\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "### Final test"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "0iKXTHsCrYFG",
+    "outputId": "2521b0c1-877e-4350-e207-075537737ea3"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "model.train(False) \n",
+    "test_batch_acc = []\n",
+    "\n",
+    "for X_batch, y_batch in DataLoader(test_dataset, batch_size=batch_size):\n",
+    "    logits = model(torch.as_tensor(X_batch, device=device, dtype=torch.float32))\n",
+    "    y_pred = logits.max(1)[1].data\n",
+    "    test_batch_acc.append(np.mean( (y_batch.cpu() == y_pred.cpu()).numpy() ))\n",
+    "\n",
+    "\n",
+    "test_accuracy = np.mean(test_batch_acc)\n",
+    "    \n",
+    "print(\"Final results:\")\n",
+    "print(\"  test accuracy:\\t\\t{:.2f} %\".format(\n",
+    "    test_accuracy * 100))\n",
+    "\n",
+    "if test_accuracy * 100 > 70:\n",
+    "    print(\"U'r freakin' amazin'!\")\n",
+    "elif test_accuracy * 100 > 50:\n",
+    "    print(\"Achievement unlocked: 110lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 40:\n",
+    "    print(\"Achievement unlocked: 80lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 30:\n",
+    "    print(\"Achievement unlocked: 70lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 20:\n",
+    "    print(\"Achievement unlocked: 60lvl Warlock!\")\n",
+    "else:\n",
+    "    print(\"We need more magic! Follow instructons below\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "SmFLssyIrYFS"
+   },
+   "source": [
+    "## Task: small convolution net\n",
+    "\n",
+    "Let's create a mini-convolutional network with roughly such architecture:\n",
+    "* Input layer\n",
+    "* 3x3 convolution with 128 filters and _ReLU_ activation\n",
+    "* 2x2 pooling (or set previous convolution stride to 3)\n",
+    "* Flatten\n",
+    "* Dense layer with 1024 neurons and _ReLU_ activation\n",
+    "* 30% dropout\n",
+    "* Output dense layer.\n",
+    "\n",
+    "\n",
+    "__Convolutional layers__ in torch are just like all other layers, but with a specific set of parameters:\n",
+    "\n",
+    "__`...`__\n",
+    "\n",
+    "__`model.add_module('conv1', nn.Conv2d(in_channels=3, out_channels=128, kernel_size=3)) # convolution`__\n",
+    "\n",
+    "__`model.add_module('pool1', nn.MaxPool2d(2)) # max pooling 2x2`__\n",
+    "\n",
+    "__`...`__\n",
+    "\n",
+    "\n",
+    "Once you're done (and compute_loss no longer raises errors), train it with __Adam__ optimizer with default params (feel free to modify the code above).\n",
+    "\n",
+    "If everything is right, you should get at least __16%__ validation accuracy.\n",
+    "\n",
+    "__HACK_OF_THE_DAY__ :the number of channels must be in the order of the number of class_labels"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "XRTq8rxPrYFU"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "model = nn.Sequential()\n",
+    "\n",
+    "<describe convnet here>\n",
+    "\n",
+    "model.add_module('dense1_logits', nn.Linear(<...>, 200)) # logits for 200 classes"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "DqIK0aZyrYFd"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "opt = torch.optim.SGD(model.parameters(), lr=0.01)\n",
+    "\n",
+    "train_loss = []\n",
+    "val_accuracy = []"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "PlnANpccrYFk"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "from torchsummary import summary\n",
+    "summary(model.cuda(), (3, 64, 64))"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "31NP8etbrYFr"
+   },
+   "source": [
+    "## Train it ##"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "pMUxrwGvrYFu"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "num_epochs = 100    # total number of full passes over data until training finishes\n",
+    "batch_size = 64     # number of images in one minibatch\n",
+    "\n",
+    "for epoch in range(100):\n",
+    "    start_time = time.time()\n",
+    "    model.train(True) # enable dropout / batch_norm training behavior\n",
+    "    for (X_batch, y_batch) in DataLoader(train_dataset, batch_size=batch_size, shuffle=True):\n",
+    "        # train on batch\n",
+    "        loss = compute_loss(X_batch, y_batch)\n",
+    "        loss.backward()\n",
+    "        opt.step()\n",
+    "        opt.zero_grad()\n",
+    "        train_loss.append(loss.cpu().data.numpy())\n",
+    "    \n",
+    "    model.train(False) # disable dropout / use averages for batch_norm\n",
+    "    for X_batch, y_batch in torch.utils.data.DataLoader(val_dataset, batch_size=batch_size):\n",
+    "        logits = model(torch.as_tensor(X_batch, device=device, dtype=torch.float32))\n",
+    "        y_pred = logits.max(1)[1].data\n",
+    "        val_accuracy.append(np.mean((y_batch.cpu() == y_pred.cpu()).numpy()))\n",
+    "\n",
+    "    \n",
+    "    # Then we print the results for this epoch:\n",
+    "    print(\"Epoch {} of {} took {:.3f}s\".format(\n",
+    "        epoch + 1, num_epochs, time.time() - start_time))\n",
+    "    print(\"  training loss (in-iteration): \\t{:.6f}\".format(\n",
+    "        np.mean(train_loss[-len(train_dataset) // batch_size :])))\n",
+    "    print(\"  validation accuracy: \\t\\t\\t{:.2f} %\".format(\n",
+    "        np.mean(val_accuracy[-len(val_dataset) // batch_size :]) * 100))"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 0,
+   "metadata": {
+    "colab": {
+    },
+    "colab_type": "code",
+    "collapsed": false,
+    "id": "B0_7ihSnrYF2"
+   },
+   "outputs": [
+   ],
+   "source": [
+    "model.train(False) # disable dropout / use averages for batch_norm\n",
+    "test_batch_acc = []\n",
+    "\n",
+    "for X_batch, y_batch in DataLoader(test_dataset, batch_size=batch_size):\n",
+    "    logits = model(torch.as_tensor(X_batch, device='cuda', dtype=torch.float32))\n",
+    "    y_pred = logits.max(1)[1].data\n",
+    "    test_batch_acc.append(np.mean( (y_batch.cpu() == y_pred.cpu()).numpy() ))\n",
+    "\n",
+    "\n",
+    "test_accuracy = np.mean(test_batch_acc)\n",
+    "    \n",
+    "print(\"Final results:\")\n",
+    "print(\"  test accuracy:\\t\\t{:.2f} %\".format(\n",
+    "    test_accuracy * 100))\n",
+    "\n",
+    "if test_accuracy * 100 > 70:\n",
+    "    print(\"U'r freakin' amazin'!\")\n",
+    "elif test_accuracy * 100 > 50:\n",
+    "    print(\"Achievement unlocked: 110lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 40:\n",
+    "    print(\"Achievement unlocked: 80lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 30:\n",
+    "    print(\"Achievement unlocked: 70lvl Warlock!\")\n",
+    "elif test_accuracy * 100 > 20:\n",
+    "    print(\"Achievement unlocked: 60lvl Warlock!\")\n",
+    "else:\n",
+    "    print(\"We need more magic! Follow instructons below\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {
+    "colab_type": "text",
+    "collapsed": false,
+    "id": "MB3rnh6-rYF9"
+   },
+   "source": [
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "```\n",
+    "\n",
+    "__Hint:__ If you don't want to compute shapes by hand, just plug in any shape (e.g. 1 unit) and run compute_loss. You will see something like this:\n",
+    "\n",
+    "__`RuntimeError: size mismatch, m1: [5 x 1960], m2: [1 x 64] at /some/long/path/to/torch/operation`__\n",
+    "\n",
+    "See the __1960__ there? That's your actual input shape.\n"
+   ]
+  }
+ ],
+ "metadata": {
+  "accelerator": "GPU",
+  "colab": {
+   "name": "seminar_convnets.ipynb",
+   "provenance": [
+   ],
+   "version": "0.3.2"
+  },
+  "kernelspec": {
+   "display_name": "Python 3",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.6.9"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 4
+}
