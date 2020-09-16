@@ -1,0 +1,6 @@
+#!/bin/sh
+PORT=6006
+echo Tensorboard is going to start at
+echo https://mlhep.coresearch.club/$COCALC_PROJECT_ID/server/$PORT/ 
+tensorboard --logdir=runs --port=$PORT --bind_all
+
